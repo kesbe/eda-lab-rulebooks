@@ -4,7 +4,7 @@
 
   sources:
     - name: Generate test events
-      eda.builtin.range:
+      ansible.eda.range:
         limit: 3
         delay: 1
 
