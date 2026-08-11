@@ -1,0 +1,21 @@
+---
+- name: Alertmanager to EDA to AWX
+  hosts: all
+
+  sources:
+    - name: Receive Alertmanager events
+      ansible.eda.alertmanager:
+        host: 0.0.0.0
+        port: 5001
+
+  rules:
+    - name: Launch AWX for EDA lab alert
+      condition: >
+        event.alert.status == "firing" and
+        event.alert.labels.alertname == "EDALabAlertmanagerTest"
+
+      action:
+        run_job_template:
+          name: "EDA Test Job"
+          organization: "Default"
+          include_events: true
