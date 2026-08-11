@@ -1,0 +1,19 @@
+---
+- name: EDA Webhook to AWX integration test
+  hosts: all
+
+  sources:
+    - name: Receive webhook events
+      ansible.eda.webhook:
+        host: 0.0.0.0
+        port: 5000
+
+  rules:
+    - name: Launch AWX from webhook
+      condition: event.payload.message == "trigger-awx"
+
+      action:
+        run_job_template:
+          name: "EDA Test Job"
+          organization: "Default"
+          include_events: false
