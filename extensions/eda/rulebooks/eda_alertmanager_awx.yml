@@ -9,6 +9,11 @@
         host: 0.0.0.0
         port: 5001
 
+      filters:
+        - eda.builtin.insert_hosts_to_meta:
+            host_path: alert.labels.target_inventory_host
+            raise_error: true
+
   rules:
 
     - name: Launch AWX high CPU diagnostic
