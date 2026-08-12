@@ -3,13 +3,26 @@
   hosts: all
 
   sources:
+
     - name: Receive Alertmanager events
       ansible.eda.alertmanager:
         host: 0.0.0.0
         port: 5001
 
   rules:
-    - name: Launch AWX for EDA lab alert
+
+    - name: Launch AWX high CPU diagnostic
+      condition: >
+        event.alert.status == "firing" and
+        event.alert.labels.alertname == "EDALabHighCPU"
+
+      action:
+        run_job_template:
+          name: "Linux High CPU Diagnostic"
+          organization: "Default"
+          include_events: true
+
+    - name: Existing synthetic EDA test
       condition: >
         event.alert.status == "firing" and
         event.alert.labels.alertname == "EDALabAlertmanagerTest"
