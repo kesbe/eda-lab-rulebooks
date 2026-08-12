@@ -1,0 +1,81 @@
+---
+- name: Linux High CPU Diagnostic
+  hosts: all
+  gather_facts: true
+  become: false
+
+  tasks:
+
+    - name: Show incident target
+      ansible.builtin.debug:
+        msg:
+          - "Inventory host: {{ inventory_hostname }}"
+          - "Target IP: {{ ansible_host | default(inventory_hostname) }}"
+
+    - name: Get hostname
+      ansible.builtin.command: hostname
+      register: hostname_result
+      changed_when: false
+
+    - name: Get date
+      ansible.builtin.command: date
+      register: date_result
+      changed_when: false
+
+    - name: Get uptime and load average
+      ansible.builtin.command: uptime
+      register: uptime_result
+      changed_when: false
+
+    - name: Get CPU count
+      ansible.builtin.command: nproc
+      register: cpu_count
+      changed_when: false
+
+    - name: Get top CPU consuming processes
+      ansible.builtin.shell: |
+        set -o pipefail
+        ps -eo pid,ppid,user,%cpu,%mem,cmd \
+          --sort=-%cpu | head -20
+      args:
+        executable: /bin/bash
+      register: top_cpu
+      changed_when: false
+
+    - name: Get memory utilization
+      ansible.builtin.command: free -m
+      register: memory_result
+      changed_when: false
+
+    - name: Get VM statistics
+      ansible.builtin.command: vmstat 1 5
+      register: vmstat_result
+      changed_when: false
+
+    - name: Get filesystem utilization
+      ansible.builtin.command: df -h
+      register: filesystem_result
+      changed_when: false
+
+    - name: Show diagnostic report
+      ansible.builtin.debug:
+        msg:
+          - "=============================================="
+          - "LINUX HIGH CPU DIAGNOSTIC"
+          - "=============================================="
+          - "Hostname: {{ hostname_result.stdout }}"
+          - "Date: {{ date_result.stdout }}"
+          - "CPU count: {{ cpu_count.stdout }}"
+          - "Uptime: {{ uptime_result.stdout }}"
+          - ""
+          - "TOP CPU PROCESSES:"
+          - "{{ top_cpu.stdout }}"
+          - ""
+          - "MEMORY:"
+          - "{{ memory_result.stdout }}"
+          - ""
+          - "VMSTAT:"
+          - "{{ vmstat_result.stdout }}"
+          - ""
+          - "FILESYSTEM:"
+          - "{{ filesystem_result.stdout }}"
