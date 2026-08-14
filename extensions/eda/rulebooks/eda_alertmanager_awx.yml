@@ -10,18 +10,26 @@
 
   rules:
 
-    - name: Launch AWX high CPU diagnostic
+    - name: Diagnose and remediate Linux high CPU
       condition: >
         event.alert.status == "firing" and
         event.alert.labels.alertname == "EDALabHighCPU"
 
-      action:
-        run_job_template:
-          name: "Linux High CPU Diagnostic"
-          organization: "Default"
-          include_events: true
-          job_args:
-            limit: "{{ event.alert.labels.target_inventory_host }}"
+      actions:
+
+        - run_job_template:
+            name: "Linux High CPU Diagnostic"
+            organization: "Default"
+            include_events: true
+            job_args:
+              limit: "{{ event.alert.labels.target_inventory_host }}"
+
+        - run_job_template:
+            name: "Linux High CPU Remediation"
+            organization: "Default"
+            include_events: true
+            job_args:
+              limit: "{{ event.alert.labels.target_inventory_host }}"
 
     - name: Existing synthetic EDA test
       condition: >
