@@ -31,6 +31,19 @@
             job_args:
               limit: "{{ event.alert.labels.target_inventory_host }}"
 
+    - name: Verify Linux high CPU recovery
+      condition: >
+        event.alert.status == "resolved" and
+        event.alert.labels.alertname == "EDALabHighCPU"
+
+      action:
+        run_job_template:
+          name: "Linux High CPU Recovery Verification"
+          organization: "Default"
+          include_events: true
+          job_args:
+            limit: "{{ event.alert.labels.target_inventory_host }}"
+
     - name: Existing synthetic EDA test
       condition: >
         event.alert.status == "firing" and
