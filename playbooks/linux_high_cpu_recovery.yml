@@ -1,0 +1,60 @@
+---
+- name: Verify Linux high CPU recovery
+  hosts: all
+  gather_facts: true
+
+  tasks:
+
+    - name: Show recovery target
+      ansible.builtin.debug:
+        msg:
+          - "Recovery verification"
+          - "Inventory host: {{ inventory_hostname }}"
+          - "Target IP: {{ ansible_host | default(inventory_hostname) }}"
+
+    - name: Check for approved CPU stress processes
+      ansible.builtin.shell: |
+        pgrep -u "$(id -u)" -x yes || true
+      register: yes_processes
+      changed_when: false
+
+    - name: Fail recovery verification if stress process still exists
+      ansible.builtin.fail:
+        msg: >-
+          Recovery verification failed.
+          'yes' process still running:
+          {{ yes_processes.stdout_lines }}
+      when: yes_processes.stdout | trim | length > 0
+
+    - name: Capture current load
+      ansible.builtin.command:
+        cmd: uptime
+      register: uptime_result
+      changed_when: false
+
+    - name: Capture current CPU snapshot
+      ansible.builtin.shell: |
+        top -bn2 -d 1 | grep '^%Cpu' | tail -1
+      register: cpu_snapshot
+      changed_when: false
+
+    - name: Capture top processes after recovery
+      ansible.builtin.shell: |
+        ps -eo pid,user,comm,%cpu,%mem --sort=-%cpu | head -10
+      register: processes_after
+      changed_when: false
+
+    - name: Display recovery report
+      ansible.builtin.debug:
+        msg:
+          - "==========================================="
+          - "HIGH CPU RECOVERY VERIFIED"
+          - "==========================================="
+          - "Host: {{ inventory_hostname }}"
+          - "Address: {{ ansible_host | default(inventory_hostname) }}"
+          - "Stress process present: NO"
+          - "Uptime: {{ uptime_result.stdout }}"
+          - "CPU: {{ cpu_snapshot.stdout }}"
+          - ""
+          - "Top processes:"
+          - "{{ processes_after.stdout }}"
