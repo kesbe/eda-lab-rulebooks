@@ -31,18 +31,32 @@
             job_args:
               limit: "{{ event.alert.labels.target_inventory_host }}"
 
-    - name: Verify Linux high CPU recovery
+    - name: Verify and report Linux high CPU recovery
       condition: >
         event.alert.status == "resolved" and
         event.alert.labels.alertname == "EDALabHighCPU"
 
-      action:
-        run_job_template:
-          name: "Linux High CPU Recovery Verification"
-          organization: "Default"
-          include_events: true
-          job_args:
-            limit: "{{ event.alert.labels.target_inventory_host }}"
+      actions:
+
+        - run_job_template:
+            name: "Linux High CPU Recovery Verification"
+            organization: "Default"
+            include_events: true
+            job_args:
+              limit: "{{ event.alert.labels.target_inventory_host }}"
+
+        - run_job_template:
+            name: "Linux High CPU Incident Report"
+            organization: "Default"
+            include_events: true
+            job_args:
+              limit: "{{ event.alert.labels.target_inventory_host }}"
+              extra_vars:
+                incident_alertname: "{{ event.alert.labels.alertname }}"
+                incident_status: "{{ event.alert.status }}"
+                incident_host: "{{ event.alert.labels.target_inventory_host }}"
+                incident_ip: "{{ event.alert.labels.target_ip }}"
+                incident_severity: "{{ event.alert.labels.severity }}"
 
     - name: Existing synthetic EDA test
       condition: >
