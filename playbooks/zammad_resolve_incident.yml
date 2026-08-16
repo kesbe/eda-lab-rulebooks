@@ -1,0 +1,180 @@
+---
+- name: Resolve correlated Zammad incident
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    zammad_url: "{{ lookup('env', 'ZAMMAD_URL') }}"
+    zammad_token: "{{ lookup('env', 'ZAMMAD_TOKEN') }}"
+
+    zammad_group_id: 2
+    zammad_open_state_id: 2
+    zammad_closed_state_id: 4
+
+    correlation_key: >-
+      EDA-{{ incident_alertname }}-{{ incident_host }}
+
+    incident_title: >-
+      {{ incident_alertname }} - {{ incident_host }} [{{ correlation_key }}]
+
+  tasks:
+
+    - name: Validate required incident variables
+      ansible.builtin.assert:
+        that:
+          - zammad_url | length > 0
+          - zammad_token | length > 0
+          - incident_alertname is defined
+          - incident_alertname | length > 0
+          - incident_host is defined
+          - incident_host | length > 0
+          - incident_recovery_body is defined
+          - incident_recovery_body | length > 0
+          - incident_close_body is defined
+          - incident_close_body | length > 0
+        fail_msg: >-
+          Required Zammad credential or incident recovery variables
+          are missing.
+
+    - name: Search Zammad for correlated incident
+      ansible.builtin.uri:
+        url: >-
+          {{ zammad_url }}/api/v1/tickets/search?query={{
+            correlation_key | urlencode
+          }}
+        method: GET
+        headers:
+          Authorization: "Token token={{ zammad_token }}"
+        return_content: true
+        status_code: 200
+      register: zammad_search
+      no_log: true
+
+    - name: Find all exactly correlated incidents
+      ansible.builtin.set_fact:
+        matching_correlated_tickets: >-
+          {{
+            zammad_search.json
+            | selectattr('title', 'equalto', incident_title)
+            | selectattr('group_id', 'equalto', zammad_group_id)
+            | list
+          }}
+
+    - name: Separate open and closed correlated incidents
+      ansible.builtin.set_fact:
+        matching_open_tickets: >-
+          {{
+            matching_correlated_tickets
+            | selectattr(
+                'state_id',
+                'equalto',
+                zammad_open_state_id
+              )
+            | list
+          }}
+        matching_closed_tickets: >-
+          {{
+            matching_correlated_tickets
+            | selectattr(
+                'state_id',
+                'equalto',
+                zammad_closed_state_id
+              )
+            | list
+          }}
+
+    - name: Validate resolved incident correlation
+      ansible.builtin.assert:
+        that:
+          - matching_open_tickets | length <= 1
+          - >
+            (matching_open_tickets | length == 1)
+            or
+            (matching_closed_tickets | length >= 1)
+        fail_msg: >-
+          Unable to safely resolve {{ correlation_key }}.
+          Open={{ matching_open_tickets | length }},
+          Closed={{ matching_closed_tickets | length }}.
+
+    - name: Record open correlated ticket
+      ansible.builtin.set_fact:
+        zammad_ticket_id: "{{ matching_open_tickets[0].id }}"
+        zammad_ticket_number: "{{ matching_open_tickets[0].number }}"
+      when: matching_open_tickets | length == 1
+
+    - name: Add AWX recovery verification evidence
+      ansible.builtin.uri:
+        url: >-
+          {{ zammad_url }}/api/v1/tickets/{{ zammad_ticket_id }}
+        method: PUT
+        headers:
+          Authorization: "Token token={{ zammad_token }}"
+          Content-Type: "application/json"
+          X-Zammad-Suppress-Notifications: "true"
+        body_format: json
+        body:
+          state: "open"
+          article:
+            subject: "AWX Recovery Verification"
+            body: "{{ incident_recovery_body }}"
+            type: "note"
+            internal: true
+        return_content: true
+        status_code: 200
+      register: zammad_recovery_update
+      no_log: true
+      when: matching_open_tickets | length == 1
+
+    - name: Close recovered Zammad incident
+      ansible.builtin.uri:
+        url: >-
+          {{ zammad_url }}/api/v1/tickets/{{ zammad_ticket_id }}
+        method: PUT
+        headers:
+          Authorization: "Token token={{ zammad_token }}"
+          Content-Type: "application/json"
+          X-Zammad-Suppress-Notifications: "true"
+        body_format: json
+        body:
+          state: "closed"
+          article:
+            subject: "Incident Automatically Resolved"
+            body: "{{ incident_close_body }}"
+            type: "note"
+            internal: true
+        return_content: true
+        status_code: 200
+      register: zammad_close
+      no_log: true
+      when: matching_open_tickets | length == 1
+
+    - name: Verify Zammad returned closed state
+      ansible.builtin.assert:
+        that:
+          - zammad_close.json.state_id | int == zammad_closed_state_id
+        fail_msg: >-
+          Zammad update succeeded but ticket was not returned
+          in the expected closed state.
+      when: matching_open_tickets | length == 1
+
+    - name: Display successful resolution
+      ansible.builtin.debug:
+        msg:
+          - "Correlation key: {{ correlation_key }}"
+          - "Ticket ID: {{ zammad_ticket_id }}"
+          - "Ticket number: {{ zammad_ticket_number }}"
+          - "Recovery evidence added: True"
+          - "Ticket closed: True"
+      when: matching_open_tickets | length == 1
+
+    - name: Display duplicate resolved event result
+      ansible.builtin.debug:
+        msg:
+          - "Correlation key: {{ correlation_key }}"
+          - "No open correlated incident exists."
+          - "A previously closed correlated incident exists."
+          - "Resolved event already processed; no action required."
+      when:
+        - matching_open_tickets | length == 0
+        - matching_closed_tickets | length >= 1
