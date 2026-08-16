@@ -1,0 +1,123 @@
+---
+- name: Create or correlate Zammad incident
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    zammad_url: "{{ lookup('env', 'ZAMMAD_URL') }}"
+    zammad_token: "{{ lookup('env', 'ZAMMAD_TOKEN') }}"
+
+    zammad_group: "Automation Incidents"
+    zammad_group_id: 2
+    zammad_open_state_id: 2
+
+    correlation_key: >-
+      EDA-{{ incident_alertname }}-{{ incident_host }}
+
+    incident_title: >-
+      {{ incident_alertname }} - {{ incident_host }} [{{ correlation_key }}]
+
+  tasks:
+
+    - name: Validate required incident variables
+      ansible.builtin.assert:
+        that:
+          - zammad_url | length > 0
+          - zammad_token | length > 0
+          - incident_alertname is defined
+          - incident_alertname | length > 0
+          - incident_host is defined
+          - incident_host | length > 0
+        fail_msg: "Required Zammad credential or incident variables are missing."
+
+    - name: Search Zammad for correlated incident
+      ansible.builtin.uri:
+        url: >-
+          {{ zammad_url }}/api/v1/tickets/search?query={{
+            correlation_key | urlencode
+          }}
+        method: GET
+        headers:
+          Authorization: "Token token={{ zammad_token }}"
+        return_content: true
+        status_code: 200
+      register: zammad_search
+      no_log: true
+
+    - name: Find matching open incident
+      ansible.builtin.set_fact:
+        matching_open_tickets: >-
+          {{
+            zammad_search.json
+            | selectattr('title', 'equalto', incident_title)
+            | selectattr('state_id', 'equalto', zammad_open_state_id)
+            | selectattr('group_id', 'equalto', zammad_group_id)
+            | list
+          }}
+
+    - name: Prevent ambiguous duplicate open incidents
+      ansible.builtin.assert:
+        that:
+          - matching_open_tickets | length <= 1
+        fail_msg: >-
+          More than one open Zammad ticket exists for correlation key
+          {{ correlation_key }}. Manual investigation is required.
+
+    - name: Reuse existing correlated incident
+      ansible.builtin.set_fact:
+        zammad_ticket_id: "{{ matching_open_tickets[0].id }}"
+        zammad_ticket_number: "{{ matching_open_tickets[0].number }}"
+        zammad_ticket_created: false
+      when: matching_open_tickets | length == 1
+
+    - name: Create new Zammad incident
+      ansible.builtin.uri:
+        url: "{{ zammad_url }}/api/v1/tickets"
+        method: POST
+        headers:
+          Authorization: "Token token={{ zammad_token }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          title: "{{ incident_title }}"
+          group: "{{ zammad_group }}"
+          customer_id: "guess:monitoring@lab.local"
+          state: "open"
+          priority: "2 normal"
+          article:
+            subject: "Prometheus Alert"
+            body: |
+              Automated incident created by Event-Driven Ansible.
+
+              Alert: {{ incident_alertname }}
+              Host: {{ incident_host }}
+              Target IP: {{ incident_ip | default('unknown') }}
+              Severity: {{ incident_severity | default('unknown') }}
+              Correlation Key: {{ correlation_key }}
+
+              Source:
+              Prometheus -> Alertmanager -> EDA -> AWX -> Zammad
+            type: "note"
+            internal: true
+        return_content: true
+        status_code: 201
+      register: zammad_create
+      no_log: true
+      when: matching_open_tickets | length == 0
+
+    - name: Record newly created ticket
+      ansible.builtin.set_fact:
+        zammad_ticket_id: "{{ zammad_create.json.id }}"
+        zammad_ticket_number: "{{ zammad_create.json.number }}"
+        zammad_ticket_created: true
+      when: matching_open_tickets | length == 0
+
+    - name: Display safe correlation result
+      ansible.builtin.debug:
+        msg:
+          - "Correlation key: {{ correlation_key }}"
+          - "Ticket ID: {{ zammad_ticket_id }}"
+          - "Ticket number: {{ zammad_ticket_number }}"
+          - "Created new ticket: {{ zammad_ticket_created }}"
+          - "Incident title: {{ incident_title }}"
