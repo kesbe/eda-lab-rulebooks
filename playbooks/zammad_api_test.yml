@@ -1,0 +1,37 @@
+---
+- name: Test Zammad API from AWX
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    zammad_url: "{{ lookup('env', 'ZAMMAD_URL') }}"
+    zammad_token: "{{ lookup('env', 'ZAMMAD_TOKEN') }}"
+
+  tasks:
+
+    - name: Validate injected Zammad variables
+      ansible.builtin.assert:
+        that:
+          - zammad_url | length > 0
+          - zammad_token | length > 0
+        fail_msg: "Zammad credential was not injected into the AWX job."
+
+    - name: Query authenticated Zammad user
+      ansible.builtin.uri:
+        url: "{{ zammad_url }}/api/v1/users/me"
+        method: GET
+        headers:
+          Authorization: "Token token={{ zammad_token }}"
+        return_content: true
+        status_code: 200
+      register: zammad_me
+      no_log: true
+
+    - name: Display safe Zammad API result
+      ansible.builtin.debug:
+        msg:
+          - "Zammad API authentication: SUCCESS"
+          - "User ID: {{ zammad_me.json.id }}"
+          - "Email: {{ zammad_me.json.email }}"
+          - "Active: {{ zammad_me.json.active }}"
