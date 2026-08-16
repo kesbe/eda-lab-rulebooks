@@ -17,6 +17,24 @@
 
       actions:
 
+        # ------------------------------------------------------------
+        # 1. Create a new Zammad incident or reuse the existing
+        #    correlated OPEN incident.
+        # ------------------------------------------------------------
+        - run_job_template:
+            name: "Zammad Create or Correlate Incident"
+            organization: "Default"
+            include_events: true
+            job_args:
+              extra_vars:
+                incident_alertname: "{{ event.alert.labels.alertname }}"
+                incident_host: "{{ event.alert.labels.target_inventory_host }}"
+                incident_ip: "{{ event.alert.labels.target_ip }}"
+                incident_severity: "{{ event.alert.labels.severity }}"
+
+        # ------------------------------------------------------------
+        # 2. Existing Linux diagnostic.
+        # ------------------------------------------------------------
         - run_job_template:
             name: "Linux High CPU Diagnostic"
             organization: "Default"
@@ -24,12 +42,56 @@
             job_args:
               limit: "{{ event.alert.labels.target_inventory_host }}"
 
+        # ------------------------------------------------------------
+        # 3. Record diagnostic completion in the correlated
+        #    Zammad ticket.
+        # ------------------------------------------------------------
+        - run_job_template:
+            name: "Zammad Update Incident"
+            organization: "Default"
+            include_events: true
+            job_args:
+              extra_vars:
+                incident_alertname: "{{ event.alert.labels.alertname }}"
+                incident_host: "{{ event.alert.labels.target_inventory_host }}"
+                incident_update_type: "diagnostic"
+                incident_update_body: >-
+                  AWX diagnostic completed for
+                  {{ event.alert.labels.target_inventory_host }}.
+                  High CPU diagnostic workflow completed for
+                  {{ event.alert.labels.alertname }}.
+                  Target IP:
+                  {{ event.alert.labels.target_ip }}.
+
+        # ------------------------------------------------------------
+        # 4. Existing Linux remediation.
+        # ------------------------------------------------------------
         - run_job_template:
             name: "Linux High CPU Remediation"
             organization: "Default"
             include_events: true
             job_args:
               limit: "{{ event.alert.labels.target_inventory_host }}"
+
+        # ------------------------------------------------------------
+        # 5. Record remediation completion.
+        #    Ticket intentionally remains OPEN until monitoring
+        #    produces a RESOLVED event.
+        # ------------------------------------------------------------
+        - run_job_template:
+            name: "Zammad Update Incident"
+            organization: "Default"
+            include_events: true
+            job_args:
+              extra_vars:
+                incident_alertname: "{{ event.alert.labels.alertname }}"
+                incident_host: "{{ event.alert.labels.target_inventory_host }}"
+                incident_update_type: "remediation"
+                incident_update_body: >-
+                  AWX automated remediation completed for
+                  {{ event.alert.labels.target_inventory_host }}.
+                  The correlated incident remains open while
+                  Prometheus and Alertmanager confirm recovery.
 
     - name: Verify and report Linux high CPU recovery
       condition: >
@@ -38,6 +100,9 @@
 
       actions:
 
+        # ------------------------------------------------------------
+        # 1. Existing independent recovery verification.
+        # ------------------------------------------------------------
         - run_job_template:
             name: "Linux High CPU Recovery Verification"
             organization: "Default"
@@ -45,6 +110,9 @@
             job_args:
               limit: "{{ event.alert.labels.target_inventory_host }}"
 
+        # ------------------------------------------------------------
+        # 2. Existing incident audit/report.
+        # ------------------------------------------------------------
         - run_job_template:
             name: "Linux High CPU Incident Report"
             organization: "Default"
@@ -57,6 +125,32 @@
                 incident_host: "{{ event.alert.labels.target_inventory_host }}"
                 incident_ip: "{{ event.alert.labels.target_ip }}"
                 incident_severity: "{{ event.alert.labels.severity }}"
+
+        # ------------------------------------------------------------
+        # 3. Find the same correlated Zammad incident,
+        #    add recovery evidence and close it.
+        # ------------------------------------------------------------
+        - run_job_template:
+            name: "Zammad Resolve Incident"
+            organization: "Default"
+            include_events: true
+            job_args:
+              extra_vars:
+                incident_alertname: "{{ event.alert.labels.alertname }}"
+                incident_host: "{{ event.alert.labels.target_inventory_host }}"
+                incident_recovery_body: >-
+                  Prometheus reported
+                  {{ event.alert.labels.alertname }}
+                  resolved for
+                  {{ event.alert.labels.target_inventory_host }}.
+                  AWX recovery verification completed successfully.
+                  Target IP:
+                  {{ event.alert.labels.target_ip }}.
+                incident_close_body: >-
+                  Automated recovery verification and incident
+                  reporting completed successfully.
+                  Closing the correlated Zammad incident for
+                  {{ event.alert.labels.target_inventory_host }}.
 
     - name: Existing synthetic EDA test
       condition: >
