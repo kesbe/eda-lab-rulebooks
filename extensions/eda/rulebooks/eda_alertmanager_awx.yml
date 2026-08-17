@@ -152,6 +152,16 @@
                   Closing the correlated Zammad incident for
                   {{ event.alert.labels.target_inventory_host }}.
 
+    - name: Trigger network closed-loop compliance
+      condition: >
+        event.alert.status == "firing" and
+        event.alert.labels.alertname == "EDANetworkComplianceDrift"
+      action:
+        run_workflow_template:
+          name: "WF02 - Network Closed-Loop Compliance"
+          organization: "Default"
+          include_events: false
+
     - name: Existing synthetic EDA test
       condition: >
         event.alert.status == "firing" and
